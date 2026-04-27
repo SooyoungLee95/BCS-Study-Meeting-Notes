@@ -2,6 +2,10 @@
 """바코스 스터디 2026년 4월 월간 회의록 PDF 생성"""
 
 import os
+import json
+import re
+import time
+import functools
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -66,6 +70,63 @@ def P(text, style="body"): return Paragraph(text, S[style])
 def bullet(text, d=1):
     return Paragraph(("  •  " if d == 2 else "•  ") + text, S["b2" if d==2 else "b1"])
 
+# ── 재시도 데코레이터 ──────────────────────────────────────────────────────
+def retry(max_attempts=3, delay=2, exceptions=(Exception,)):
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except exceptions as e:
+                    if attempt == max_attempts:
+                        raise
+                    wait = delay * (2 ** (attempt - 1))
+                    print(f"[retry] {fn.__name__} 실패 (시도 {attempt}/{max_attempts}): {e} → {wait}s 후 재시도")
+                    time.sleep(wait)
+        return wrapper
+    return decorator
+
+# ── 전사본 읽기 ────────────────────────────────────────────────────────────
+def load_transcript(base_dir, name):
+    """4월/음성전사/{name}.json 을 읽어 타임스탬프 포함 블록 리스트 반환."""
+    json_path = os.path.join(base_dir, f"{name}.json")
+    if not os.path.exists(json_path):
+        return []
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    segments = data.get("segments", [])
+
+    # 한국어 비율 50% 이상인 세그먼트만 선택 후 시간 근접한 것 병합
+    clean = []
+    for seg in segments:
+        t = seg["text"].strip()
+        if len(t) < 10:
+            continue
+        kor = sum(1 for c in t if "가" <= c <= "힣")
+        total = len(t.replace(" ", ""))
+        if total and kor / total >= 0.50:
+            clean.append((seg["start"], t))
+
+    if not clean:
+        return []
+
+    merged, cur_ts, cur_parts = [], clean[0][0], [clean[0][1]]
+    for i in range(1, len(clean)):
+        ts, t = clean[i]
+        if ts - clean[i - 1][0] < 6:
+            cur_parts.append(t)
+        else:
+            block = " ".join(cur_parts)
+            if len(block) >= 15:
+                merged.append((cur_ts, block))
+            cur_ts, cur_parts = ts, [t]
+    if cur_parts:
+        block = " ".join(cur_parts)
+        if len(block) >= 15:
+            merged.append((cur_ts, block))
+    return merged
+
 # ── 데이터 ────────────────────────────────────────────────────────────────
 MEMBERS = [
     ("이수영", "Sooyoung Lee"),
@@ -84,6 +145,7 @@ SESSIONS = [
     {
         "date": "4월 7일 (화)",
         "has_rec": True,
+        "transcript_name": "바코스 4-7",
         "progress": [
             ("이수영",
              "Anthropic courses 완강\nMCP server client 구현",
@@ -123,6 +185,7 @@ SESSIONS = [
     {
         "date": "4월 14일 (화)",
         "has_rec": False,
+        "transcript_name": None,
         "progress": [
             ("이수영",
              "없음",
@@ -160,6 +223,7 @@ SESSIONS = [
     {
         "date": "4월 21일 (화)",
         "has_rec": True,
+        "transcript_name": "바코스 4-21",
         "progress": [
             ("이수영",
              "없음",
@@ -294,8 +358,36 @@ def build_progress(progress):
     ]))
     return t
 
+# ── 음성 전사 섹션 ────────────────────────────────────────────────────────
+def build_audio_section(transcript_name, base_dir):
+    e = [HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4),
+         P("음성 녹음 분석", "h3")]
+    blocks = load_transcript(base_dir, transcript_name)
+    if not blocks:
+        e.append(P("전사 파일 없음 또는 인식된 한국어 내용 없음", "note"))
+        return e
+    e.append(P(f"※ Whisper(tiny) 자동 전사 기반 — 발화 발췌 {len(blocks)}블록 중 상위 20개", "note"))
+    e.append(sp(2))
+    ts_style = _s("ts", fontSize=8, textColor=C_LBLUE, leading=12)
+    for ts, text in blocks[:20]:
+        mins, secs = int(ts // 60), int(ts % 60)
+        row = Table(
+            [[Paragraph(f"[{mins:02d}:{secs:02d}]", ts_style),
+              Paragraph(text, S["b1"])]],
+            colWidths=[12*mm, None]
+        )
+        row.setStyle(TableStyle([
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING", (0,0), (-1,-1), 0),
+            ("RIGHTPADDING", (0,0), (-1,-1), 0),
+            ("TOPPADDING", (0,0), (-1,-1), 1),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 1),
+        ]))
+        e.append(row)
+    return e
+
 # ── 세션 페이지 ────────────────────────────────────────────────────────────
-def build_session(sess):
+def build_session(sess, transcript_base_dir):
     rec_note = "  [음성녹음 있음]" if sess["has_rec"] else ""
     e = [P(f"▌ {sess['date']} 스터디 회의록{rec_note}", "sec"), hr(), sp(2),
          P("진행 현황", "h3"),
@@ -308,6 +400,13 @@ def build_session(sess):
             for sub in item: e.append(bullet(sub, d=2))
         else:
             e.append(bullet(item))
+    e.append(sp(4))
+    if sess["has_rec"]:
+        e += build_audio_section(sess["transcript_name"], transcript_base_dir)
+    else:
+        e += [HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceAfter=4),
+              P("음성 녹음 분석", "h3"),
+              P("이 날짜의 음성 녹음 파일이 없습니다.", "note")]
     e += [sp(4),
           P(f"슬랙 캡처 사진: {len(sess['slack_images'])}장 (마지막 페이지 참조)", "note"),
           PageBreak()]
@@ -372,9 +471,8 @@ def footer(canvas, doc):
     canvas.restoreState()
 
 # ── 메인 ─────────────────────────────────────────────────────────────────
-def main():
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "2026-04_바코스_스터디_월간_회의록.pdf")
+@retry(max_attempts=3, delay=2)
+def build_pdf(out, transcript_dir):
     doc = SimpleDocTemplate(
         out, pagesize=A4,
         leftMargin=18*mm, rightMargin=18*mm,
@@ -384,9 +482,17 @@ def main():
     )
     story = build_cover() + build_toc()
     for sess in SESSIONS:
-        story += build_session(sess)
+        story += build_session(sess, transcript_dir)
     story += build_photos()
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
+
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    out = os.path.join(script_dir, "2026-04_바코스_스터디_월간_회의록.pdf")
+    # 전사본 디렉토리: 스크립트 기준 ../음성전사/
+    transcript_dir = os.path.normpath(os.path.join(script_dir, "../음성전사"))
+    print(f"전사본 경로: {transcript_dir}")
+    build_pdf(out, transcript_dir)
     print(f"완료: {out}")
 
 if __name__ == "__main__":
