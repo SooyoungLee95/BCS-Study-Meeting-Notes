@@ -275,38 +275,37 @@ def transcript_slide(prs):
         size=12, color=WHITE, align=PP_ALIGN.CENTER)
 
 
-def photo_placeholder_slide(prs, date_str: str, file_id: str, idx: int):
+def photo_slide(prs, date_str: str, image_path: str, idx: int, total: int):
+    """Drive 인증사진을 슬라이드에 임베드"""
+    from PIL import Image as PILImage
     s = new_slide(prs)
     bg(s, BRAND_DARK)
     rect(s, 0, 0, SLIDE_W, Inches(0.07), YELLOW)
-    txt(s, f"📸 스터디 인증 사진 ({idx}/2) · {date_str}",
+    txt(s, f"📸 스터디 인증 사진 ({idx}/{total}) · {date_str}",
         Inches(0.5), Inches(0.12), Inches(12), Inches(0.65),
         size=24, bold=True, color=YELLOW)
 
-    # 사진 프레임
-    rect(s, Inches(1.5), Inches(0.95), Inches(10.3), Inches(5.8), RGBColor(0x0A, 0x15, 0x28))
-    # 점선 테두리 효과
-    border_color = RGBColor(0x30, 0x50, 0x80)
-    for _ in range(1):
-        frame = s.shapes.add_shape(1, Inches(1.55), Inches(1.0), Inches(10.2), Inches(5.7))
-        frame.fill.background()
-        frame.line.color.rgb = border_color
-        frame.line.width = Pt(2)
+    img = PILImage.open(image_path)
+    iw, ih = img.size
+    avail_w = Inches(11.5)
+    avail_h = Inches(5.8)
+    aw_emu = int(avail_w)
+    ah_emu = int(avail_h)
+    img_ratio = iw / ih
+    box_ratio = aw_emu / ah_emu
+    if img_ratio > box_ratio:
+        final_w = aw_emu
+        final_h = int(aw_emu / img_ratio)
+    else:
+        final_h = ah_emu
+        final_w = int(ah_emu * img_ratio)
 
-    txt(s, "📷", Inches(5.7), Inches(2.3), Inches(2), Inches(1.5),
-        size=60, color=RGBColor(0x30, 0x50, 0x80), align=PP_ALIGN.CENTER)
-    txt(s, f"스터디 인증 사진 · {date_str}",
-        Inches(2), Inches(3.8), Inches(9.3), Inches(0.6),
-        size=18, color=RGBColor(0x50, 0x70, 0xA0), align=PP_ALIGN.CENTER)
-    txt(s, f"Slack 파일 ID: {file_id}",
-        Inches(2), Inches(4.4), Inches(9.3), Inches(0.45),
-        size=12, color=RGBColor(0x40, 0x60, 0x90), align=PP_ALIGN.CENTER)
-    txt(s, "※ pipeline.py 실행 시 실제 사진으로 교체됩니다 (SLACK_BOT_TOKEN 필요)",
-        Inches(1.5), Inches(5.0), Inches(10.3), Inches(0.45),
-        size=11, color=GRAY, align=PP_ALIGN.CENTER)
+    left = (int(SLIDE_W) - final_w) // 2
+    top = Inches(1.0)
+    s.shapes.add_picture(image_path, left, top, width=final_w, height=final_h)
 
     rect(s, 0, Inches(7.05), SLIDE_W, Inches(0.45), BRAND_ACCENT)
-    txt(s, f"BCS 스터디 인증 · 2026년 4월 · #스터디-mgc",
+    txt(s, f"BCS 스터디 인증 · 2026년 4월 · {date_str}",
         Inches(0.5), Inches(7.08), Inches(12.3), Inches(0.35),
         size=11, color=BRAND_LIGHT, align=PP_ALIGN.CENTER)
 
@@ -363,11 +362,25 @@ def build_ppt(output_path: str):
     print("5/7 음성전사 슬라이드...")
     transcript_slide(prs)
 
-    print("6/7 스터디 인증 사진 슬라이드 (4/21) ...")
-    photo_placeholder_slide(prs, "4월 21일", "F0AU542SECE", 1)
+    photo_dir = os.environ.get("BCS_PHOTO_DIR", "/tmp/bcs/photos")
+    photo_files = []
+    if os.path.isdir(photo_dir):
+        import glob
+        photo_files = sorted(
+            glob.glob(os.path.join(photo_dir, "*.png")) +
+            glob.glob(os.path.join(photo_dir, "*.jpg"))
+        )
 
-    print("7/7 스터디 인증 사진 슬라이드 (4/29) ...")
-    photo_placeholder_slide(prs, "4월 29일", "F0B0BMR67H9", 2)
+    if photo_files:
+        for idx, path in enumerate(photo_files, 1):
+            stem = Path(path).stem
+            label = stem
+            if stem.isdigit() and len(stem) == 4:
+                label = f"4월 {int(stem[2:])}일"
+            print(f"{5+idx}/{5+len(photo_files)} 스터디 인증 사진 슬라이드 ({label}) ...")
+            photo_slide(prs, label, path, idx, len(photo_files))
+    else:
+        print("⚠ 인증사진 폴더 없음 (BCS_PHOTO_DIR), 사진 슬라이드 생략")
 
     prs.save(output_path)
     print(f"\n✅ PPT 저장 완료: {output_path}")
