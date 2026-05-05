@@ -59,17 +59,11 @@ def _find_subfolder(service, parent_id: str, name: str) -> str:
 
 
 def transcribe_file(model_path: str, audio_path: str) -> str:
-    """pywhispercpp으로 음성 전사"""
-    try:
-        from pywhispercpp.model import Model
-        model = Model(model_path)
-        segments = model.transcribe(audio_path)
-        return "\n".join(s.text for s in segments)
-    except ImportError:
-        import whisper
-        pt_model = whisper.load_model("tiny")
-        result = pt_model.transcribe(audio_path)
-        return result["text"]
+    """pywhispercpp + GGML large-v3 모델로 음성 전사"""
+    from pywhispercpp.model import Model
+    model = Model(model_path)
+    segments = model.transcribe(audio_path)
+    return "\n".join(s.text for s in segments)
 
 
 def run(year_month: str):
