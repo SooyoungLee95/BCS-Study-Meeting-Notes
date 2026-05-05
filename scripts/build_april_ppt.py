@@ -186,7 +186,7 @@ def overview_slide(prs):
             size=15, color=WHITE)
 
 
-def meeting_slide(prs, meeting: dict, idx: int, total: int):
+def meeting_slide(prs, meeting: dict, idx: int, total: int, transcript: str = None):
     s = new_slide(prs)
     bg(s, BRAND_BLUE)
     rect(s, 0, 0, SLIDE_W, Inches(0.07), YELLOW)
@@ -201,38 +201,64 @@ def meeting_slide(prs, meeting: dict, idx: int, total: int):
         size=14, color=GRAY, align=PP_ALIGN.RIGHT)
     rect(s, Inches(0.5), Inches(0.9), Inches(12.3), Inches(0.03), RGBColor(0x2A, 0x3A, 0x5A))
 
-    # 왼쪽: 진행 내용 표
+    # 상단 좌측: 진행 내용 표 (Confluence)
     rect(s, Inches(0.5), Inches(1.0), Inches(7.7), Inches(0.36), BRAND_ACCENT)
-    txt(s, "▪ 이번주 진행 내용", Inches(0.6), Inches(1.03), Inches(7.5), Inches(0.3),
+    txt(s, "▪ 진행 내용 (회의록)", Inches(0.6), Inches(1.03), Inches(7.5), Inches(0.3),
         size=13, bold=True, color=WHITE)
 
-    row_h = Inches(0.54)
+    row_h = Inches(0.42)
     for i, (name, done) in enumerate(meeting["rows"]):
         y = Inches(1.38) + i * row_h
         c = RGBColor(0x10, 0x2A, 0x55) if i % 2 == 0 else RGBColor(0x12, 0x1E, 0x40)
         rect(s, Inches(0.5), y, Inches(7.7), row_h - Inches(0.04), c)
-        txt(s, name, Inches(0.62), y + Inches(0.07), Inches(1.7), Inches(0.44),
-            size=12, bold=True, color=YELLOW)
+        txt(s, name, Inches(0.62), y + Inches(0.05), Inches(1.7), Inches(0.34),
+            size=11, bold=True, color=YELLOW)
         short = done[:58] + "…" if len(done) > 58 else done
-        txt(s, short, Inches(2.45), y + Inches(0.07), Inches(5.6), Inches(0.44),
-            size=11, color=WHITE)
+        txt(s, short, Inches(2.45), y + Inches(0.05), Inches(5.6), Inches(0.34),
+            size=10, color=WHITE)
 
-    # 오른쪽: Insights
+    # 상단 우측: Insights (Confluence)
     rect(s, Inches(8.4), Inches(1.0), Inches(4.4), Inches(0.36), RGBColor(0x1A, 0x3A, 0x60))
-    txt(s, "💡 Insights", Inches(8.5), Inches(1.03), Inches(4.2), Inches(0.3),
+    txt(s, "💡 Insights (회의록)", Inches(8.5), Inches(1.03), Inches(4.2), Inches(0.3),
         size=13, bold=True, color=YELLOW)
 
     ins_y = Inches(1.43)
-    for ins in meeting["insights"][:6]:
-        short = ins[:64] + "…" if len(ins) > 64 else ins
-        rect(s, Inches(8.4), ins_y, Inches(4.4), Inches(0.7), RGBColor(0x0D, 0x20, 0x3D))
-        txt(s, f"• {short}", Inches(8.5), ins_y + Inches(0.06), Inches(4.2), Inches(0.62),
+    for ins in meeting["insights"][:5]:
+        short = ins[:60] + "…" if len(ins) > 60 else ins
+        rect(s, Inches(8.4), ins_y, Inches(4.4), Inches(0.42), RGBColor(0x0D, 0x20, 0x3D))
+        txt(s, f"• {short}", Inches(8.5), ins_y + Inches(0.04), Inches(4.2), Inches(0.36),
             size=10, color=BRAND_LIGHT, wrap=True)
-        ins_y += Inches(0.74)
+        ins_y += Inches(0.46)
+
+    # 하단: 음성 전사 핵심 (회의록과 같은 페이지에 통합)
+    transcript_top = Inches(3.85)
+    rect(s, Inches(0.5), transcript_top, Inches(12.3), Inches(0.36), RGBColor(0x2D, 0x4A, 0x82))
+    txt(s, "🎙 음성 전사 핵심 내용", Inches(0.6), transcript_top + Inches(0.03),
+        Inches(12), Inches(0.3), size=13, bold=True, color=YELLOW)
+
+    body_top = transcript_top + Inches(0.4)
+    body_h = Inches(2.65)
+    rect(s, Inches(0.5), body_top, Inches(12.3), body_h, RGBColor(0x0A, 0x14, 0x28))
+
+    if transcript and transcript.strip():
+        body_text = transcript.strip().replace("\n\n", "\n").replace("\n", " ")
+        if len(body_text) > 1100:
+            body_text = body_text[:1100] + "…"
+    else:
+        body_text = (
+            f"※ 음성 전사 미실행. scripts/pipeline.py --year-month 2604 실행 시 "
+            f"Drive 바코스/2604/음성녹음/바코스 {date_txt.replace('/', '-')}.m4a 파일을 "
+            f"바코스/models/ggml-large-v3.bin (Whisper large-v3) 모델로 전사하여 "
+            f"이 영역에 자동 삽입됩니다."
+        )
+
+    txt(s, body_text, Inches(0.7), body_top + Inches(0.1),
+        Inches(11.9), body_h - Inches(0.2),
+        size=11, color=BRAND_LIGHT, wrap=True)
 
     # 하단 구분선
     rect(s, 0, Inches(7.05), SLIDE_W, Inches(0.45), BRAND_DARK)
-    txt(s, f"BCS 스터디 · 2026년 4월 · {date_txt}",
+    txt(s, f"BCS 스터디 · 2026년 4월 · {date_txt} · 회의록 + 녹취록 통합",
         Inches(0.5), Inches(7.08), Inches(12.3), Inches(0.35),
         size=11, color=GRAY, align=PP_ALIGN.CENTER)
 
@@ -341,26 +367,43 @@ def summary_slide(prs):
 
 
 # ── 메인 ────────────────────────────────────────────────────
+def _load_transcripts() -> dict:
+    """BCS_TRANSCRIPT_DIR 의 *.txt 를 {date_label: text} 로 로드"""
+    d = os.environ.get("BCS_TRANSCRIPT_DIR")
+    if not d or not os.path.isdir(d):
+        return {}
+    import glob
+    out = {}
+    for path in glob.glob(os.path.join(d, "*.txt")):
+        stem = Path(path).stem  # 예: '바코스 4-7'
+        m = re.search(r"(\d+)-(\d+)", stem)
+        if m:
+            label = f"{int(m.group(1))}/{int(m.group(2))}"
+            with open(path, encoding="utf-8") as f:
+                out[label] = f.read()
+    return out
+
+
 def build_ppt(output_path: str):
     prs = Presentation()
     prs.slide_width  = SLIDE_W
     prs.slide_height = SLIDE_H
 
-    print("1/7 타이틀 슬라이드...")
+    transcripts = _load_transcripts()
+
+    print("1/N 타이틀 슬라이드...")
     title_slide(prs)
 
-    print("2/7 프로젝트 개요 슬라이드...")
+    print("2/N 프로젝트 개요 슬라이드...")
     overview_slide(prs)
 
-    print("3/7 회의록 슬라이드 (4회) ...")
+    print(f"3..6/N 일자별 회의록+녹취록 통합 슬라이드 ({len(MEETINGS)}회) ...")
     for i, m in enumerate(MEETINGS):
-        meeting_slide(prs, m, i + 1, len(MEETINGS))
+        tr = transcripts.get(m["date"])
+        meeting_slide(prs, m, i + 1, len(MEETINGS), transcript=tr)
 
-    print("4/7 월간 요약 슬라이드...")
+    print("7/N 월간 요약 슬라이드...")
     summary_slide(prs)
-
-    print("5/7 음성전사 슬라이드...")
-    transcript_slide(prs)
 
     photo_dir = os.environ.get("BCS_PHOTO_DIR", "/tmp/bcs/photos")
     photo_files = []
